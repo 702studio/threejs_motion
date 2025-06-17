@@ -21,9 +21,86 @@
         #progress-container { flex-grow: 1; height: 4px; background-color: rgba(0, 0, 0, 0.1); margin: 0 20px; position: relative; border-radius: 2px; }
         #progress-bar { width: 0%; height: 100%; background-color: #111; border-radius: 2px; }
         .tick { position: absolute; top: -2px; width: 1px; height: 8px; background-color: rgba(0, 0, 0, 0.2); }
+
+        #settings-button {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            width: 40px;
+            height: 40px;
+            background-color: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 20px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            z-index: 100; /* Above info-bar (default z-index or 1) but below panel */
+        }
+        #settings-panel {
+            position: fixed;
+            bottom: 70px; /* Above the button */
+            left: 20px;
+            width: 220px; /* Or as needed */
+            padding: 15px;
+            background-color: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.25);
+            z-index: 101; /* Above button */
+            display: none; /* Initially hidden */
+            color: #111;
+            font-family: 'SF Mono', 'Consolas', 'Menlo', monospace;
+            font-size: 14px;
+            display: none; /* Initially hidden */
+        }
+        #settings-panel .panel-title {
+            font-weight: bold;
+            margin-bottom: 10px;
+            display: block;
+            color: #333;
+        }
+        #settings-panel button {
+            display: block;
+            width: 100%;
+            padding: 8px 10px;
+            margin-bottom: 8px;
+            border: 1px solid rgba(0,0,0,0.1);
+            border-radius: 4px;
+            background-color: rgba(255,255,255,0.7);
+            color: #333;
+            cursor: pointer;
+            text-align: left;
+            font-family: inherit;
+            font-size: 13px;
+        }
+        #settings-panel button:hover {
+            background-color: rgba(255,255,255,1);
+            border-color: rgba(0,0,0,0.2);
+        }
+        #settings-panel button.active {
+            background-color: #4CAF50; /* Green */
+            color: white;
+            border-color: #4CAF50;
+        }
+        #settings-panel button:last-child {
+            margin-bottom: 0;
+        }
     </style>
 </head>
 <body>
+    <div id="settings-button">⚙️</div>
+    <div id="settings-panel">
+        <span class="panel-title">Render Modes</span>
+        <button id="default-mode-button">Default</button>
+        <button id="wireframe-mode-button">White Wireframe on Black</button>
+        <button id="edges-mode-button">Black Edges on White</button>
+    </div>
+
     <div id="info-bar">
         <div id="shot-counter">SHOT: 1 / 10</div>
         <div id="progress-container">
@@ -74,36 +151,60 @@
 
         // --- MODEL VE MATERYALLER ---
         const perfumeBottle = new THREE.Group();
-        const bodyMaterial = new THREE.MeshStandardMaterial({
-            metalness: 1.0, roughness: 0.05, envMapIntensity: 1.2
+        const bodyMaterial = new THREE.MeshStandardMaterial({ // This is effectively originalBodyMaterial
+            metalness: 1.0, roughness: 0.05, envMapIntensity: 1.5
         });
         const body = new THREE.Mesh(new RoundedBoxGeometry(1.2, 2.0, 1.2, 8, 0.1), bodyMaterial);
         perfumeBottle.add(body);
         
-        const capMaterial = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, metalness: 0.9, roughness: 0.1, envMapIntensity: 0.5 });
+        const capMaterial = new THREE.MeshStandardMaterial({ // This is effectively originalCapMaterial
+            color: 0x1a1a1a, metalness: 0.9, roughness: 0.1, envMapIntensity: 0.8
+        });
         const cap = new THREE.Mesh(new RoundedBoxGeometry(1.25, 0.6, 1.25, 8, 0.08), capMaterial);
         cap.position.y = 1.3;
         perfumeBottle.add(cap);
         scene.add(perfumeBottle);
         perfumeBottle.position.y = -0.1;
 
-        // --- HDRI YÜKLEME ---
-        new RGBELoader()
-            .setPath('https://unpkg.com/three@0.157.0/examples/textures/equirectangular/')
-            .load('studio_small_03_1k.hdr', function (texture) {
-                texture.mapping = THREE.EquirectangularReflectionMapping;
-                scene.environment = texture;
-                bodyMaterial.envMap = texture; // Gövdeye yansıma haritasını ata
-                capMaterial.envMap = texture;  // Kapağa yansıma haritasını ata
-                bodyMaterial.needsUpdate = true;
-                capMaterial.needsUpdate = true;
-            });
-        
-        const plane = new THREE.Mesh(new THREE.PlaneGeometry(50, 50), new THREE.MeshStandardMaterial({ color: 0xe8e8e8, roughness: 0.8 }));
+        const planeOriginalMaterial = new THREE.MeshStandardMaterial({ color: 0xe8e8e8, roughness: 0.8 });
+        const plane = new THREE.Mesh(new THREE.PlaneGeometry(50, 50), planeOriginalMaterial);
         plane.rotation.x = -Math.PI / 2;
         plane.position.y = -1.1;
         plane.receiveShadow = true;
         scene.add(plane);
+
+        // --- STATE FOR RENDER MODES ---
+        let originalBodyMaterial = bodyMaterial;
+        let originalCapMaterial = capMaterial;
+        let originalPlaneMaterial = planeOriginalMaterial;
+        let originalPlaneVisible = plane.visible;
+        const originalClearColor = new THREE.Color();
+        renderer.getClearColor(originalClearColor); // Capture initial clear color
+        let originalClearAlpha = renderer.getClearAlpha();
+        let originalSceneBackground = scene.background; // Should be null
+        let originalBloomPassEnabled = bloomPass.enabled;
+
+        const wireframeMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true });
+        let bodyEdges = null;
+        let capEdges = null;
+        const edgesThresholdAngle = 20; // For EdgesGeometry
+
+        // --- HDRI YÜKLEME ---
+        // Note: envMap assignment might change bodyMaterial and capMaterial instances if they were cloned.
+        // For this setup, we assume they are directly modified.
+        new RGBELoader()
+            .setPath('')
+            .load('https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/2k/kloppenheim_06_puresky_2k.hdr', function (texture) {
+                texture.mapping = THREE.EquirectangularReflectionMapping;
+                scene.environment = texture;
+                originalBodyMaterial.envMap = texture;
+                originalCapMaterial.envMap = texture;
+                originalBodyMaterial.needsUpdate = true;
+                originalCapMaterial.needsUpdate = true;
+
+                // Re-capture materials here if RGBELoader replaces them or significantly alters them
+                // For now, assuming it modifies them in place and original references are still valid.
+            });
         
         const keyLight = new THREE.DirectionalLight(0xffffff, 1.0);
         keyLight.position.set(5, 5, 5);
@@ -167,6 +268,142 @@
             composer.render();
         }
         animate();
+
+        // --- SETTINGS UI ---
+        const settingsButton = document.getElementById('settings-button');
+        const settingsPanel = document.getElementById('settings-panel');
+        const defaultModeButton = document.getElementById('default-mode-button');
+        const wireframeModeButton = document.getElementById('wireframe-mode-button');
+        const edgesModeButton = document.getElementById('edges-mode-button');
+
+        function updateButtonStates(activeButtonId) {
+            [defaultModeButton, wireframeModeButton, edgesModeButton].forEach(button => {
+                if (button && button.id === activeButtonId) { // Added null check for button
+                    button.classList.add('active');
+                } else if (button) { // Added null check for button
+                    button.classList.remove('active');
+                }
+            });
+        }
+
+        // Set initial state for buttons
+        updateButtonStates('default-mode-button');
+
+
+        settingsButton.addEventListener('click', () => {
+            if (settingsPanel.style.display === 'none' || settingsPanel.style.display === '') {
+                settingsPanel.style.display = 'block';
+            } else {
+                settingsPanel.style.display = 'none';
+            }
+        });
+
+        function removeEdgeObjects() {
+            if (bodyEdges) {
+                perfumeBottle.remove(bodyEdges);
+                bodyEdges.geometry.dispose();
+                bodyEdges.material.dispose();
+                bodyEdges = null;
+            }
+            if (capEdges) {
+                perfumeBottle.remove(capEdges);
+                capEdges.geometry.dispose();
+                capEdges.material.dispose();
+                capEdges = null;
+            }
+        }
+
+        function switchToDefaultMode() {
+            removeEdgeObjects();
+
+            body.material = originalBodyMaterial;
+            cap.material = originalCapMaterial;
+            plane.material = originalPlaneMaterial;
+
+            body.visible = true;
+            cap.visible = true;
+            plane.visible = originalPlaneVisible;
+
+            renderer.setClearColor(originalClearColor, originalClearAlpha);
+            scene.background = originalSceneBackground;
+            scene.environment = originalBodyMaterial.envMap;
+
+            bloomPass.enabled = originalBloomPassEnabled;
+
+            originalBodyMaterial.needsUpdate = true;
+            originalCapMaterial.needsUpdate = true;
+            originalPlaneMaterial.needsUpdate = true;
+
+            updateButtonStates('default-mode-button');
+            console.log("Switched to Default Mode");
+        }
+
+        function switchToWireframeMode() {
+            removeEdgeObjects();
+
+            // Ensure original meshes are visible before changing material
+            body.visible = true;
+            cap.visible = true;
+            plane.visible = false; // Plane is not shown in wireframe mode
+
+            body.material = wireframeMaterial;
+            cap.material = wireframeMaterial;
+
+            renderer.setClearColor(0x000000, 1.0);
+            scene.background = new THREE.Color(0x000000);
+            scene.environment = null;
+
+            bloomPass.enabled = false;
+
+            updateButtonStates('wireframe-mode-button');
+            console.log("Switched to Wireframe Mode");
+        }
+
+        function switchToEdgesMode() {
+            removeEdgeObjects(); // Clean up any existing edges first
+
+            // Reset materials to original in case coming from wireframe, before hiding
+            body.material = originalBodyMaterial;
+            cap.material = originalCapMaterial;
+
+            body.visible = false;
+            cap.visible = false;
+            plane.visible = false;
+
+            if (!bodyEdges) {
+                const bodyEdgesGeom = new THREE.EdgesGeometry(body.geometry, edgesThresholdAngle);
+                bodyEdges = new THREE.LineSegments(bodyEdgesGeom, new THREE.LineBasicMaterial({ color: 0x000000 }));
+                perfumeBottle.add(bodyEdges);
+            }
+            if (!capEdges) {
+                const capEdgesGeom = new THREE.EdgesGeometry(cap.geometry, edgesThresholdAngle);
+                capEdges = new THREE.LineSegments(capEdgesGeom, new THREE.LineBasicMaterial({ color: 0x000000 }));
+                // Cap is positioned relative to perfumeBottle, so add edges to perfumeBottle as well.
+                // Ensure capEdges also respects cap's local position if any (it does: cap.position.y = 1.3)
+                // We need to apply the cap's local transformation to the edges if they are added directly to perfumeBottle
+                // or, simpler, add them as children of the cap itself if we ensure cap is added to scene.
+                // Current setup: cap is child of perfumeBottle. So add edges also as child of perfumeBottle,
+                // but they need to be positioned like the cap.
+                // The EdgesGeometry is created from cap.geometry, which is in local space of the cap.
+                // So, if capEdges is added to perfumeBottle, it needs the same position as cap.
+                capEdges.position.copy(cap.position);
+                perfumeBottle.add(capEdges);
+            }
+
+            renderer.setClearColor(0xffffff, 1.0); // Opaque white
+            scene.background = new THREE.Color(0xffffff);
+            scene.environment = null;
+
+            bloomPass.enabled = false;
+
+            updateButtonStates('edges-mode-button');
+            console.log("Switched to Edges Mode");
+        }
+
+        defaultModeButton.addEventListener('click', switchToDefaultMode);
+        wireframeModeButton.addEventListener('click', switchToWireframeMode);
+        edgesModeButton.addEventListener('click', switchToEdgesMode);
+
     </script>
 </body>
 </html>
