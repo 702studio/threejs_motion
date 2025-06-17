@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Perfume Ad - The Definitive Cut</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #f0f0f0; }
+        canvas { display: block; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); }
+        #info-bar {
+            position: fixed; bottom: 0; left: 50%; transform: translateX(-50%);
+            width: 100%; max-width: 450px; padding: 10px 20px;
+            background-color: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+            color: #111; font-family: 'SF Mono', 'Consolas', 'Menlo', monospace;
+            font-size: 12px; display: flex; align-items: center; justify-content: space-between;
+            box-sizing: border-box; border-top: 1px solid rgba(0, 0, 0, 0.1);
+            border-left: 1px solid rgba(0, 0, 0, 0.1); border-right: 1px solid rgba(0, 0, 0, 0.1);
+            border-top-left-radius: 8px; border-top-right-radius: 8px;
+        }
+        #progress-container { flex-grow: 1; height: 4px; background-color: rgba(0, 0, 0, 0.1); margin: 0 20px; position: relative; border-radius: 2px; }
+        #progress-bar { width: 0%; height: 100%; background-color: #111; border-radius: 2px; }
+        .tick { position: absolute; top: -2px; width: 1px; height: 8px; background-color: rgba(0, 0, 0, 0.2); }
+    </style>
+</head>
+<body>
+    <div id="info-bar">
+        <div id="shot-counter">SHOT: 1 / 10</div>
+        <div id="progress-container">
+            <div id="progress-bar"></div>
+            <div class="tick" style="left: 10%;"></div><div class="tick" style="left: 20%;"></div><div class="tick" style="left: 30%;"></div>
+            <div class="tick" style="left: 40%;"></div><div class="tick" style="left: 50%;"></div><div class="tick" style="left: 60%;"></div>
+            <div class="tick" style="left: 70%;"></div><div class="tick" style="left: 80%;"></div><div class="tick" style="left: 90%;"></div>
+        </div>
+        <div id="time-display">0.00s</div>
+    </div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.157.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.157.0/examples/jsm/",
+            "gsap": "https://unpkg.com/gsap@3.12.2/index.js"
+        }
+    }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { gsap } from 'gsap';
+        import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+        import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
+        // --- GLOBAL SETUP ---
+        const scene = new THREE.Scene();
+        const aspectRatio = 9 / 16;
+        const camera = new THREE.PerspectiveCamera(50, aspectRatio, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.shadowMap.enabled = true;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.2;
+        document.body.insertBefore(renderer.domElement, document.getElementById('info-bar'));
+
+        // --- POST-PROCESSING ---
+        const composer = new EffectComposer(renderer);
+        const renderPass = new RenderPass(scene, camera);
+        composer.addPass(renderPass);
+
+        const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.4, 0.5, 0.85);
+        composer.addPass(bloomPass);
+
+        // --- MODEL VE MATERYALLER ---
+        const perfumeBottle = new THREE.Group();
+        const bodyMaterial = new THREE.MeshStandardMaterial({
+            metalness: 1.0, roughness: 0.05, envMapIntensity: 1.2
+        });
+        const body = new THREE.Mesh(new RoundedBoxGeometry(1.2, 2.0, 1.2, 8, 0.1), bodyMaterial);
+        perfumeBottle.add(body);
+        
+        const capMaterial = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, metalness: 0.9, roughness: 0.1, envMapIntensity: 0.5 });
+        const cap = new THREE.Mesh(new RoundedBoxGeometry(1.25, 0.6, 1.25, 8, 0.08), capMaterial);
+        cap.position.y = 1.3;
+        perfumeBottle.add(cap);
+        scene.add(perfumeBottle);
+        perfumeBottle.position.y = -0.1;
+
+        // --- HDRI YÜKLEME ---
+        new RGBELoader()
+            .setPath('https://unpkg.com/three@0.157.0/examples/textures/equirectangular/')
+            .load('studio_small_03_1k.hdr', function (texture) {
+                texture.mapping = THREE.EquirectangularReflectionMapping;
+                scene.environment = texture;
+                bodyMaterial.envMap = texture; // Gövdeye yansıma haritasını ata
+                capMaterial.envMap = texture;  // Kapağa yansıma haritasını ata
+                bodyMaterial.needsUpdate = true;
+                capMaterial.needsUpdate = true;
+            });
+        
+        const plane = new THREE.Mesh(new THREE.PlaneGeometry(50, 50), new THREE.MeshStandardMaterial({ color: 0xe8e8e8, roughness: 0.8 }));
+        plane.rotation.x = -Math.PI / 2;
+        plane.position.y = -1.1;
+        plane.receiveShadow = true;
+        scene.add(plane);
+        
+        const keyLight = new THREE.DirectionalLight(0xffffff, 1.0);
+        keyLight.position.set(5, 5, 5);
+        keyLight.castShadow = true;
+        scene.add(keyLight);
+        
+        // --- ANİMASYON ---
+        const tl = gsap.timeline({ repeat: -1, onUpdate: updateUI });
+        const ease = "sine.inOut";
+        tl.to(perfumeBottle.rotation, { y: Math.PI * 1.2, duration: 20, ease: "none" }, 0);
+        
+        // --- KESİTLER ---
+        tl.set(camera.position, { x: 0.8, y: 1.4, z: 0.8 }, 0).set(camera.rotation, { x: -0.9, y: 0.6, z: 0.5 }, 0).to(camera.position, { y: 1.2, z: 1.2, duration: 2, ease: ease }, 0);
+        tl.set(camera.position, { x: -1.5, y: -0.5, z: 1.5 }, 2).set(camera.rotation, { x: 0.1, y: -0.8, z: 0 }, 2).to(camera.position, { y: 0, duration: 2, ease: ease }, 2);
+        tl.set(camera.position, { x: 0, y: 3, z: 0.1 }, 4).set(camera.rotation, { x: -Math.PI / 2, y: 0, z: 0 }, 4).to(camera.position, { y: 3.5, duration: 2, ease: ease }, 4);
+        tl.set(camera.position, { x: 2.5, y: 0.2, z: 0 }, 6).set(camera.rotation, { x: 0, y: Math.PI / 2, z: 0 }, 6).to(camera.position, { x: 2.8, duration: 2, ease: ease }, 6);
+        tl.set(camera.position, { x: 0, y: 1.0, z: -1.8 }, 8).set(camera.rotation, { x: 0, y: Math.PI, z: 0 }, 8).to(camera.position, { z: -2.2, duration: 2, ease: ease }, 8);
+        tl.set(camera.position, { x: -4, y: 2, z: 4 }, 10).set(camera.rotation, { x: -0.4, y: -0.7, z: -0.3 }, 10).to(camera.position, { x: -3, y: 1.5, z: 3, duration: 2, ease: ease }, 10);
+        tl.set(camera.position, { x: 1.8, y: 1.0, z: 2.2 }, 12).set(camera.rotation, { x: -0.3, y: 0.7, z: 0.2 }, 12).to(camera.position, { x: -1.8, y: 0.5, z: 2.2, duration: 2, ease: ease }, 12).to(camera.rotation, { y: -0.7, z: -0.2, duration: 2, ease: ease }, 12);
+        tl.set(camera.position, { x: 1.5, y: 2, z: 1.5 }, 14).set(camera.rotation, { x: -0.8, y: 0.6, z: 0.5 }, 14).to(camera.position, { x: 1, y: 1.8, z: 1, duration: 2, ease: ease }, 14);
+        tl.set(camera.position, { x: -2, y: 1.5, z: 3.5 }, 16).set(camera.rotation, { x: -0.3, y: -0.5, z: -0.15 }, 16).to(camera.position, { z: 4, duration: 2, ease: ease }, 16);
+        
+        // Final "Hero" Shot (İyileştirilmiş Merkezleme)
+        tl.set(camera.position, { x: 0.3, y: 0.4, z: 4.5 }, 18).set(camera.rotation, { x: -0.05, y: 0.05, z: 0 }, 18);
+        tl.to(camera.position, { x: 0, y: 0.2, z: 4.2, duration: 2, ease: "power2.out" }, 18);
+        tl.to(camera.rotation, { x: 0, y: 0, z: 0, duration: 2, ease: "power2.out" }, 18);
+        tl.from(cap.position, { y: 1.9, duration: 1.2, ease: "power2.out" }, 18.1);
+
+        // --- RENDER/BOYUTLANDIRMA/UI FONKSİYONLARI ---
+        function handleResize() {
+            const w = window.innerWidth;
+            const h = window.innerHeight;
+            let newW, newH;
+
+            if (h / w > 16 / 9) {
+                newW = w;
+                newH = w * (16 / 9);
+            } else {
+                newH = h;
+                newW = h * (9 / 16);
+            }
+            renderer.setSize(newW, newH);
+            camera.aspect = 9 / 16;
+            camera.updateProjectionMatrix();
+            composer.setSize(newW, newH);
+        }
+
+        function updateUI() {
+            const time = tl.time();
+            const shot = Math.min(10, Math.floor(time / 2) + 1);
+            document.getElementById('shot-counter').textContent = `SHOT: ${shot} / 10`;
+            document.getElementById('progress-bar').style.width = `${tl.progress() * 100}%`;
+            document.getElementById('time-display').textContent = `${time.toFixed(2)}s`;
+        }
+
+        window.addEventListener('resize', handleResize);
+        handleResize();
+
+        function animate() {
+            requestAnimationFrame(animate);
+            composer.render();
+        }
+        animate();
+    </script>
+</body>
+</html>
