@@ -90,6 +90,30 @@
         #settings-panel button:last-child {
             margin-bottom: 0;
         }
+        .setting-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid rgba(0,0,0,0.08);
+        }
+        .setting-item label {
+            font-size: 13px;
+            color: #333;
+        }
+        #bloom-toggle {
+            margin-left: 10px;
+            /* Basic styling for checkbox - can be expanded */
+            transform: scale(1.1); /* Slightly larger checkbox */
+            cursor: pointer;
+        }
+        /* Style for range sliders within setting items */
+        .setting-item input[type="range"] {
+            flex-grow: 1; /* Allows slider to take up available space */
+            margin-left: 10px;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -99,6 +123,16 @@
         <button id="default-mode-button">Default</button>
         <button id="wireframe-mode-button">White Wireframe on Black</button>
         <button id="edges-mode-button">Black Edges on White</button>
+
+        <div class="setting-item">
+            <label for="bloom-toggle">Bloom Effect:</label>
+            <input type="checkbox" id="bloom-toggle" name="bloom-toggle" checked>
+        </div>
+
+        <div class="setting-item">
+            <label for="bloom-intensity-slider">Bloom Intensity:</label>
+            <input type="range" id="bloom-intensity-slider" name="bloom-intensity-slider" min="0" max="2" step="0.1" value="0.4">
+        </div>
     </div>
 
     <div id="info-bar">
@@ -182,7 +216,9 @@
         renderer.getClearColor(originalClearColor); // Capture initial clear color
         let originalClearAlpha = renderer.getClearAlpha();
         let originalSceneBackground = scene.background; // Should be null
-        let originalBloomPassEnabled = bloomPass.enabled;
+        // let originalBloomPassEnabled = bloomPass.enabled; // We'll use userBloomEnabled for default state now
+        let userBloomEnabled = true; // User's current preference for bloom, initially on
+        let userBloomStrength = 0.4; // User's current preference for bloom strength
 
         const wireframeMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true });
         let bodyEdges = null;
@@ -275,6 +311,17 @@
         const defaultModeButton = document.getElementById('default-mode-button');
         const wireframeModeButton = document.getElementById('wireframe-mode-button');
         const edgesModeButton = document.getElementById('edges-mode-button');
+        const bloomToggle = document.getElementById('bloom-toggle');
+        const bloomIntensitySlider = document.getElementById('bloom-intensity-slider');
+
+        // Initialize UI states
+        if (bloomToggle) {
+            bloomToggle.checked = userBloomEnabled;
+        }
+        if (bloomIntensitySlider) {
+            bloomIntensitySlider.value = userBloomStrength;
+            bloomIntensitySlider.disabled = !userBloomEnabled;
+        }
 
         function updateButtonStates(activeButtonId) {
             [defaultModeButton, wireframeModeButton, edgesModeButton].forEach(button => {
@@ -328,7 +375,11 @@
             scene.background = originalSceneBackground;
             scene.environment = originalBodyMaterial.envMap;
 
-            bloomPass.enabled = originalBloomPassEnabled;
+            bloomPass.enabled = userBloomEnabled;
+            if (userBloomEnabled) {
+                bloomPass.strength = userBloomStrength;
+            }
+            if (bloomIntensitySlider) bloomIntensitySlider.disabled = !userBloomEnabled;
 
             originalBodyMaterial.needsUpdate = true;
             originalCapMaterial.needsUpdate = true;
@@ -354,6 +405,7 @@
             scene.environment = null;
 
             bloomPass.enabled = false;
+            if (bloomIntensitySlider) bloomIntensitySlider.disabled = true;
 
             updateButtonStates('wireframe-mode-button');
             console.log("Switched to Wireframe Mode");
@@ -395,6 +447,7 @@
             scene.environment = null;
 
             bloomPass.enabled = false;
+            if (bloomIntensitySlider) bloomIntensitySlider.disabled = true;
 
             updateButtonStates('edges-mode-button');
             console.log("Switched to Edges Mode");
@@ -403,6 +456,29 @@
         defaultModeButton.addEventListener('click', switchToDefaultMode);
         wireframeModeButton.addEventListener('click', switchToWireframeMode);
         edgesModeButton.addEventListener('click', switchToEdgesMode);
+
+        if (bloomToggle) {
+            bloomToggle.addEventListener('change', () => {
+                userBloomEnabled = bloomToggle.checked;
+                // If current mode is "Default", apply change immediately.
+                // Other modes (Wireframe, Edges) disable bloom anyway, so this mainly affects Default mode.
+                if (defaultModeButton.classList.contains('active')) {
+                    bloomPass.enabled = userBloomEnabled;
+                }
+                if (bloomIntensitySlider) {
+                    bloomIntensitySlider.disabled = !userBloomEnabled;
+                }
+                console.log("Bloom enabled: " + userBloomEnabled);
+            });
+        }
+
+        if (bloomIntensitySlider) {
+            bloomIntensitySlider.addEventListener('input', () => {
+                userBloomStrength = parseFloat(bloomIntensitySlider.value);
+                bloomPass.strength = userBloomStrength;
+                console.log("Bloom strength: " + userBloomStrength);
+            });
+        }
 
     </script>
 </body>
