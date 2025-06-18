@@ -111,9 +111,25 @@
             cursor: pointer;
         }
         */
+        #loading-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #f5f5f5; /* Solid off-white to match scene background */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: 'SF Mono', 'Consolas', 'Menlo', monospace;
+            font-size: 18px;
+            color: #333;
+            z-index: 200; /* Higher than settings panel (101) */
+        }
     </style>
 </head>
 <body>
+    <div id="loading-screen">Loading Model...</div>
     <div id="settings-button">⚙️</div>
     <div id="settings-panel">
         <span class="panel-title">Render Modes</span>
@@ -149,11 +165,17 @@
         import { gsap } from 'gsap';
         import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
         import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
         import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
         import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
         // import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'; // Removed
 
         // --- GLOBAL SETUP ---
+        const loadingScreen = document.getElementById('loading-screen');
+        let loadedModel = null;
+        let newBottleMesh = null;
+        let newCapMesh = null;
+
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0xf5f5f5); // Set scene background for seamless environment
 
@@ -214,6 +236,86 @@
         let capEdges = null;
         const edgesThresholdAngle = 20; // For EdgesGeometry
 
+        // --- GLTF MODEL LOADING ---
+        const loader = new GLTFLoader();
+
+        function onLoadCallback(gltf) {
+            scene.remove(perfumeBottle); // Remove the old procedural bottle
+
+            loadedModel = gltf.scene;
+            loadedModel.name = "loadedPerfumeBottle";
+            loadedModel.position.y = -0.1; // Match old procedural bottle position
+            loadedModel.scale.set(1, 1, 1); // Initial scale, adjust as needed
+            scene.add(loadedModel);
+
+            loadedModel.traverse(function (child) {
+                if (child.isMesh) {
+                    console.log("Found mesh in GLB: " + child.name);
+                    // !!! USER ACTION REQUIRED: Replace 'S_Bottle_Body' and 'S_Bottle_Cap'
+                    // with actual mesh names logged to the console from your GLB file.
+                    if (child.name === 'S_Bottle_Body') {
+                        newBottleMesh = child;
+                        newBottleMesh.material = bodyMaterial; // Initial assignment
+                        newBottleMesh.castShadow = true;
+                        newBottleMesh.receiveShadow = true;
+                    } else if (child.name === 'S_Bottle_Cap') {
+                        newCapMesh = child;
+                        newCapMesh.material = capMaterial; // Initial assignment
+                        newCapMesh.castShadow = true;
+                        // newCapMesh.receiveShadow = false; // Cap usually doesn't receive shadows
+                    }
+                }
+            });
+
+            // Attempt to apply materials if HDRI already loaded and new meshes are found
+            // (bodyMaterial and capMaterial would have envMap if HDRI loaded first)
+            if (bodyMaterial.envMap && newBottleMesh) {
+                 newBottleMesh.material = bodyMaterial;
+                 bodyMaterial.needsUpdate = true;
+            }
+            if (capMaterial.envMap && newCapMesh) {
+                 newCapMesh.material = capMaterial;
+                 capMaterial.needsUpdate = true;
+            }
+
+            // --- RETARGET ANIMATIONS ---
+            // Ensure timeline exists (it should, as it's defined before loader starts)
+            if (tl) {
+                // Remove old animations if they were added previously to 'perfumeBottle' or 'cap'
+                // This is a bit broad; more specific removal by ID or target would be better if timeline was complex.
+                // For now, assuming these are the only tweens directly on these objects.
+                // A more robust way is to not add them in the first place until model is loaded.
+                // (This part is done by removing them from their original spot further down)
+
+                if (loadedModel) {
+                    console.log("Retargeting rotation animation to loadedModel.");
+                    tl.to(loadedModel.rotation, { y: Math.PI * 1.2, duration: 20, ease: "none" }, 0);
+                }
+                if (newCapMesh) {
+                    console.log("Retargeting cap position animation to newCapMesh.");
+                    const restingY = newCapMesh.position.y; // Assuming this is its correct local resting Y
+                    tl.from(newCapMesh.position, { y: restingY + 0.6, duration: 1.2, ease: "power2.out" }, 18.1);
+                }
+            }
+            // --- END RETARGET ---
+
+
+            if (loadingScreen) {
+                loadingScreen.style.display = 'none';
+            }
+            console.log("GLB model loaded and processed.");
+        }
+
+        function onErrorCallback(error) {
+            console.error('Error loading GLB model:', error);
+            if (loadingScreen) {
+                loadingScreen.textContent = 'Error loading model. See console.';
+            }
+        }
+
+        loader.load('parfumebottle.glb', onLoadCallback, undefined, onErrorCallback);
+
+
         // --- HDRI YÜKLEME ---
         // Note: envMap assignment might change bodyMaterial and capMaterial instances if they were cloned.
         // For this setup, we assume they are directly modified.
@@ -227,8 +329,13 @@
                 originalBodyMaterial.needsUpdate = true;
                 originalCapMaterial.needsUpdate = true;
 
-                // Re-capture materials here if RGBELoader replaces them or significantly alters them
-                // For now, assuming it modifies them in place and original references are still valid.
+                // Apply materials to GLTF parts if they are already loaded and identified
+                if (newBottleMesh) {
+                    newBottleMesh.material = originalBodyMaterial; // Use originalBodyMaterial as it's the one with envMap
+                }
+                if (newCapMesh) {
+                    newCapMesh.material = originalCapMaterial; // Use originalCapMaterial
+                }
             });
 
         const keyLight = new THREE.DirectionalLight(0xffffff, 1.0);
@@ -239,7 +346,7 @@
         // --- ANİMASYON ---
         const tl = gsap.timeline({ repeat: -1, onUpdate: updateUI });
         const ease = "sine.inOut";
-        tl.to(perfumeBottle.rotation, { y: Math.PI * 1.2, duration: 20, ease: "none" }, 0);
+        // tl.to(perfumeBottle.rotation, { y: Math.PI * 1.2, duration: 20, ease: "none" }, 0); // Moved to onLoadCallback
 
         // --- KESİTLER ---
         tl.set(camera.position, { x: 0.8, y: 1.4, z: 0.8 }, 0).set(camera.rotation, { x: -0.9, y: 0.6, z: 0.5 }, 0).to(camera.position, { y: 1.2, z: 1.2, duration: 2, ease: ease }, 0);
@@ -256,7 +363,7 @@
         tl.set(camera.position, { x: 0.3, y: 0.4, z: 4.5 }, 18).set(camera.rotation, { x: -0.05, y: 0.05, z: 0 }, 18);
         tl.to(camera.position, { x: 0, y: 0.2, z: 4.2, duration: 2, ease: "power2.out" }, 18);
         tl.to(camera.rotation, { x: 0, y: 0, z: 0, duration: 2, ease: "power2.out" }, 18);
-        tl.from(cap.position, { y: 1.9, duration: 1.2, ease: "power2.out" }, 18.1);
+        // tl.from(cap.position, { y: 1.9, duration: 1.2, ease: "power2.out" }, 18.1); // Moved to onLoadCallback
 
         // --- RENDER/BOYUTLANDIRMA/UI FONKSİYONLARI ---
         function handleResize() {
